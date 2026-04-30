@@ -1,4 +1,74 @@
 <?php
+require_once __DIR__ . '/config.php';
+session_start();
+
+if (($_POST['action'] ?? '') === 'login') {
+    if ($_POST['password'] === PASSWORD) {
+        $_SESSION['visitor'] = true;
+    }
+    header('Location: index.php');
+    exit;
+}
+
+if (empty($_SESSION['visitor'])) {
+?><!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Journal photographique · Tawan Arun</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; background: #fff; color: #111110;
+  font-family: 'DM Mono', monospace; display: flex;
+  align-items: center; justify-content: center;
+}
+.login-wrap { display: flex; flex-direction: column; gap: 1.6rem; align-items: flex-start; }
+.login-title {
+  font-size: .6rem; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(0,0,0,.4);
+}
+.login-title span { color: #111110; }
+input[type=password] {
+  background: #fff; border: none; border-bottom: 1px solid rgba(0,0,0,.2);
+  color: #111110; font-family: 'DM Mono', monospace; font-size: .72rem;
+  padding: .5rem 0; letter-spacing: .1em; outline: none; width: 220px;
+  transition: border-color .2s;
+}
+input[type=password]:focus { border-color: #111110; }
+button {
+  background: none; border: none; cursor: pointer;
+  font-family: 'DM Mono', monospace; font-size: .5rem; letter-spacing: .2em;
+  text-transform: uppercase; color: rgba(0,0,0,.4); padding: 0;
+  transition: color .2s;
+}
+button:hover { color: #111110; }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-title"><span>journal photo</span> &nbsp;· Tawan Arun</div>
+  <form method="POST">
+    <input type="hidden" name="action" value="login">
+    <input type="password" name="password" placeholder="mot de passe" autofocus>
+  </form>
+  <form method="POST">
+    <input type="hidden" name="action" value="login">
+    <input type="hidden" name="password" id="pw-hidden">
+    <button type="button" onclick="
+      document.getElementById('pw-hidden').value = document.querySelector('input[type=password]').value;
+      this.closest('form').submit();
+    ">Entrer →</button>
+  </form>
+</div>
+</body>
+</html><?php
+    exit;
+}
+
 // ─── Scan & sort images by date (filename or filemtime) ───────────────────
 $img_dir = 'img/';
 $extensions = ['jpg', 'jpeg', 'png', 'webp', 'JPG', 'JPEG', 'PNG'];
@@ -152,6 +222,22 @@ nav button.active { color: var(--ink); }
   max-height: 100vh;
   object-fit: contain;
   display: block;
+  cursor: zoom-in;
+}
+
+.photo-wrap img.is-zooming {
+  transition: width .35s ease, height .35s ease, transform .35s ease;
+}
+
+#viewer.is-zoomed .photo-wrap.visible img { cursor: grab; }
+#viewer.is-zoomed .photo-wrap.visible img.dragging { cursor: grabbing; }
+
+#viewer.is-cover .photo-wrap img {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
 }
 
 /* ── Caption bar: bottom left badge ────────────────────────────────────── */
@@ -209,7 +295,7 @@ nav button.active { color: var(--ink); }
 .arrow {
   pointer-events: auto;
   background: none; border: none; cursor: pointer;
-  width: 48px; height: 48px;
+  width: 72px; height: 72px;
   display: flex; align-items: center; justify-content: center;
   color: var(--muted);
   transition: color .2s, transform .2s var(--ease);
@@ -219,7 +305,7 @@ nav button.active { color: var(--ink); }
 .arrow:hover { color: var(--ink); opacity: 1; transform: scale(1.1); }
 .arrow:disabled { opacity: .12; cursor: default; pointer-events: none; }
 
-.arrow svg { width: 28px; height: 28px; }
+.arrow svg { width: 44px; height: 44px; }
 
 /* Counter */
 .counter {
@@ -236,7 +322,7 @@ nav button.active { color: var(--ink); }
 /* ── CONTACT SHEET ─────────────────────────────────────────────────────── */
 #contact {
   display: none;
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; inset: 0; z-index: 50;
   background: var(--white);
   overflow-y: auto;
   padding: 6rem 2.5rem 4rem;
@@ -253,11 +339,15 @@ nav button.active { color: var(--ink); }
 }
 
 .contact-header h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-mono);
   font-weight: 300;
-  font-size: 1.6rem;
-  letter-spacing: .06em;
+  font-size: .7rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color .2s;
 }
+.contact-header h2:hover { color: var(--muted); }
 
 .close-btn {
   background: none; border: none; cursor: pointer;
@@ -368,6 +458,7 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
     <nav>
       <button id="btn-viewer" class="active" onclick="showViewer()">Journal</button>
       <button id="btn-contact" onclick="showContact()">Planche contact</button>
+      <button id="btn-cover" onclick="toggleCover()">Cover</button>
     </nav>
   </header>
 
@@ -431,7 +522,7 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
 <!-- ── Contact sheet ─────────────────────────────────────────────────── -->
 <div id="contact">
   <div class="contact-header">
-    <h2>Planche contact</h2>
+    <h2 onclick="showViewer()">← Planche contact</h2>
     <button class="close-btn" onclick="showViewer()">← Fermer</button>
   </div>
   <div class="contact-grid">
@@ -462,7 +553,7 @@ function navigate(dir) {
   current = Math.max(0, Math.min(total - 1, current + dir));
   if (prev === current) return;
 
-  // Swap visible
+  resetZoom(false);
   document.getElementById('photo-' + prev).classList.remove('visible');
   document.getElementById('photo-' + current).classList.add('visible');
 
@@ -505,19 +596,155 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft')  navigate(-1);
 });
 
-// ── Touch / swipe ─────────────────────────────────────────────────────────
+// ── Touch / swipe (disabled when zoomed) ──────────────────────────────────
 let touchX = null;
 document.getElementById('viewer').addEventListener('touchstart', e => {
+  if (isZoomed) return;
   touchX = e.touches[0].clientX;
 });
 document.getElementById('viewer').addEventListener('touchend', e => {
-  if (touchX === null) return;
+  if (isZoomed || touchX === null) return;
   const dx = e.changedTouches[0].clientX - touchX;
   if (Math.abs(dx) > 50) navigate(dx < 0 ? 1 : -1);
   touchX = null;
 });
 
+// ── Zoom & Pan ────────────────────────────────────────────────────────────
+let isZoomed = false, panX = 0, panY = 0;
+let dragActive = false, dragMoved = false;
+let dragStartX, dragStartY, dragPanX, dragPanY;
+
+function activeImg() {
+  const w = document.querySelector('.photo-wrap.visible');
+  return w ? w.querySelector('img') : null;
+}
+
+function clampPan(x, y, img) {
+  const vr = document.getElementById('viewer').getBoundingClientRect();
+  const mx = Math.max(0, (img.naturalWidth  - vr.width)  / 2);
+  const my = Math.max(0, (img.naturalHeight - vr.height) / 2);
+  return { x: Math.max(-mx, Math.min(mx, x)), y: Math.max(-my, Math.min(my, y)) };
+}
+
+function resetZoom(animate) {
+  isZoomed = false; panX = 0; panY = 0;
+  const img = activeImg();
+  if (!img) return;
+  const viewer  = document.getElementById('viewer');
+  const isCover = viewer.classList.contains('is-cover');
+  viewer.classList.remove('is-zoomed');
+  if (animate) {
+    const vr = viewer.getBoundingClientRect();
+    let tw, th;
+    if (isCover) {
+      tw = vr.width; th = vr.height;
+    } else {
+      const scale = Math.min(vr.width / img.naturalWidth, vr.height / img.naturalHeight);
+      tw = img.naturalWidth * scale; th = img.naturalHeight * scale;
+    }
+    img.classList.add('is-zooming');
+    img.style.width     = tw + 'px';
+    img.style.height    = th + 'px';
+    img.style.transform = '';
+    setTimeout(() => { img.classList.remove('is-zooming'); img.style.cssText = ''; }, 380);
+  } else {
+    img.style.cssText = '';
+  }
+}
+
+function zoomAt(img, cx, cy) {
+  const ir  = img.getBoundingClientRect();
+  const vr  = document.getElementById('viewer').getBoundingClientRect();
+  const vcx = vr.left + vr.width  / 2;
+  const vcy = vr.top  + vr.height / 2;
+  const sx  = img.naturalWidth  / ir.width;
+  const sy  = img.naturalHeight / ir.height;
+  const ncx = (cx - ir.left) * sx - img.naturalWidth  / 2;
+  const ncy = (cy - ir.top)  * sy - img.naturalHeight / 2;
+  const raw = { x: (cx - vcx) - ncx, y: (cy - vcy) - ncy };
+  const c   = clampPan(raw.x, raw.y, img);
+  panX = c.x; panY = c.y;
+  isZoomed = true;
+  // Pin current displayed size (transition start point)
+  img.style.maxWidth  = 'none';
+  img.style.maxHeight = 'none';
+  img.style.width     = ir.width  + 'px';
+  img.style.height    = ir.height + 'px';
+  img.style.transform = '';
+  img.getBoundingClientRect(); // force reflow
+  img.classList.add('is-zooming');
+  img.style.width     = img.naturalWidth  + 'px';
+  img.style.height    = img.naturalHeight + 'px';
+  img.style.transform = `translate(${panX}px,${panY}px)`;
+  document.getElementById('viewer').classList.add('is-zoomed');
+  setTimeout(() => img.classList.remove('is-zooming'), 380);
+}
+
+// Mouse drag
+const viewerEl = document.getElementById('viewer');
+viewerEl.addEventListener('mousedown', e => {
+  if (!isZoomed || !e.target.matches('img')) return;
+  dragActive = true; dragMoved = false;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  dragPanX = panX; dragPanY = panY;
+  e.target.classList.add('dragging');
+  e.preventDefault();
+});
+document.addEventListener('mousemove', e => {
+  if (!dragActive) return;
+  const dx = e.clientX - dragStartX, dy = e.clientY - dragStartY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true;
+  const img = activeImg(); if (!img) return;
+  const c = clampPan(dragPanX + dx, dragPanY + dy, img);
+  panX = c.x; panY = c.y;
+  img.style.transform = `translate(${panX}px,${panY}px)`;
+});
+document.addEventListener('mouseup', () => {
+  if (!dragActive) return;
+  dragActive = false;
+  const img = activeImg(); if (img) img.classList.remove('dragging');
+});
+
+// Click to zoom / unzoom
+viewerEl.addEventListener('click', e => {
+  if (dragMoved) { dragMoved = false; return; }
+  if (!e.target.matches('img')) return;
+  isZoomed ? resetZoom(true) : zoomAt(e.target, e.clientX, e.clientY);
+});
+
+// Touch pan when zoomed
+let tStartX, tStartY, tPanX, tPanY, tMoved;
+viewerEl.addEventListener('touchstart', e => {
+  if (!isZoomed || e.touches.length !== 1) return;
+  tStartX = e.touches[0].clientX; tStartY = e.touches[0].clientY;
+  tPanX = panX; tPanY = panY; tMoved = false;
+  e.stopPropagation();
+}, { capture: true });
+viewerEl.addEventListener('touchmove', e => {
+  if (!isZoomed || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - tStartX;
+  const dy = e.touches[0].clientY - tStartY;
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) tMoved = true;
+  const img = activeImg(); if (!img) return;
+  const c = clampPan(tPanX + dx, tPanY + dy, img);
+  panX = c.x; panY = c.y;
+  img.style.transform = `translate(${panX}px,${panY}px)`;
+  e.preventDefault();
+}, { passive: false });
+viewerEl.addEventListener('touchend', e => {
+  if (!isZoomed) return;
+  if (!tMoved) resetZoom();
+  e.stopPropagation();
+}, { capture: true });
+
 // ── Views ─────────────────────────────────────────────────────────────────
+function toggleCover() {
+  const viewer = document.getElementById('viewer');
+  const btn    = document.getElementById('btn-cover');
+  viewer.classList.toggle('is-cover');
+  btn.classList.toggle('active', viewer.classList.contains('is-cover'));
+}
+
 function showViewer() {
   document.getElementById('contact').classList.remove('open');
   document.getElementById('btn-viewer').classList.add('active');
