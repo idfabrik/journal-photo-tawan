@@ -192,6 +192,7 @@ if (isset($_POST['action']) && !in_array($_POST['action'], ['login','logout'])) 
             $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
             if (!in_array($ext, $ext_ok)) { $results[] = ['name' => $name, 'ok' => false]; continue; }
             $dest = IMG_DIR . $name;
+            if (file_exists($dest)) unlink($dest);
             if (move_uploaded_file($files['tmp_name'][$i], $dest)) {
                 $results[] = ['name' => $name, 'ok' => true];
             } else {

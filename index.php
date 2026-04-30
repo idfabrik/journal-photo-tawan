@@ -621,8 +621,8 @@ function activeImg() {
 
 function clampPan(x, y, img) {
   const vr = document.getElementById('viewer').getBoundingClientRect();
-  const mx = Math.max(0, (img.naturalWidth  - vr.width)  / 2);
-  const my = Math.max(0, (img.naturalHeight - vr.height) / 2);
+  const mx = Math.max(0, (img.naturalWidth  * 2 - vr.width)  / 2);
+  const my = Math.max(0, (img.naturalHeight * 2 - vr.height) / 2);
   return { x: Math.max(-mx, Math.min(mx, x)), y: Math.max(-my, Math.min(my, y)) };
 }
 
@@ -657,10 +657,10 @@ function zoomAt(img, cx, cy) {
   const vr  = document.getElementById('viewer').getBoundingClientRect();
   const vcx = vr.left + vr.width  / 2;
   const vcy = vr.top  + vr.height / 2;
-  const sx  = img.naturalWidth  / ir.width;
-  const sy  = img.naturalHeight / ir.height;
-  const ncx = (cx - ir.left) * sx - img.naturalWidth  / 2;
-  const ncy = (cy - ir.top)  * sy - img.naturalHeight / 2;
+  const sx  = img.naturalWidth  * 2 / ir.width;
+  const sy  = img.naturalHeight * 2 / ir.height;
+  const ncx = (cx - ir.left) * sx - img.naturalWidth;
+  const ncy = (cy - ir.top)  * sy - img.naturalHeight;
   const raw = { x: (cx - vcx) - ncx, y: (cy - vcy) - ncy };
   const c   = clampPan(raw.x, raw.y, img);
   panX = c.x; panY = c.y;
@@ -673,8 +673,8 @@ function zoomAt(img, cx, cy) {
   img.style.transform = '';
   img.getBoundingClientRect(); // force reflow
   img.classList.add('is-zooming');
-  img.style.width     = img.naturalWidth  + 'px';
-  img.style.height    = img.naturalHeight + 'px';
+  img.style.width     = (img.naturalWidth  * 2) + 'px';
+  img.style.height    = (img.naturalHeight * 2) + 'px';
   img.style.transform = `translate(${panX}px,${panY}px)`;
   document.getElementById('viewer').classList.add('is-zoomed');
   setTimeout(() => img.classList.remove('is-zooming'), 380);
