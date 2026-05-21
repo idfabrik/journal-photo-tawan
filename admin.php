@@ -202,6 +202,54 @@ if (isset($_POST['action']) && !in_array($_POST['action'], ['login','logout'])) 
         echo json_encode(['results' => $results]);
         exit;
     }
+
+    // Generate thumbnail
+    if ($_POST['action'] === 'generate_thumb') {
+        $file = basename($_POST['file'] ?? '');
+        $size = (int)($_POST['size'] ?? 0);
+        if (!$file || !in_array($size, [300, 1200])) { echo json_encode(['error' => 'Paramètres invalides']); exit; }
+
+        $src = IMG_DIR . $file;
+        if (!file_exists($src)) { echo json_encode(['error' => 'Fichier introuvable']); exit; }
+
+        $thumb_dir = IMG_DIR . 'thumbs/' . $size . '/';
+        if (!is_dir($thumb_dir)) mkdir($thumb_dir, 0755, true);
+
+        $dest = $thumb_dir . pathinfo($file, PATHINFO_FILENAME) . '.jpg';
+
+        $info = getimagesize($src);
+        if (!$info) { echo json_encode(['error' => 'Image invalide']); exit; }
+
+        [$w, $h] = $info;
+        $mime    = $info['mime'];
+
+        if (max($w, $h) <= $size) {
+            copy($src, $dest);
+            echo json_encode(['ok' => true, 'skipped' => true, 'w' => $w, 'h' => $h]);
+            exit;
+        }
+
+        if ($w >= $h) { $nw = $size; $nh = (int)round($h * $size / $w); }
+        else          { $nh = $size; $nw = (int)round($w * $size / $h); }
+
+        switch ($mime) {
+            case 'image/jpeg': $src_img = imagecreatefromjpeg($src); break;
+            case 'image/png':  $src_img = imagecreatefrompng($src);  break;
+            case 'image/webp': $src_img = imagecreatefromwebp($src); break;
+            default:           $src_img = null;
+        }
+        if (!$src_img) { echo json_encode(['error' => 'Format non supporté']); exit; }
+
+        $dst_img = imagecreatetruecolor($nw, $nh);
+        imagefill($dst_img, 0, 0, imagecolorallocate($dst_img, 255, 255, 255));
+        imagecopyresampled($dst_img, $src_img, 0, 0, 0, 0, $nw, $nh, $w, $h);
+        imagejpeg($dst_img, $dest, 75);
+        imagedestroy($src_img);
+        imagedestroy($dst_img);
+
+        echo json_encode(['ok' => true, 'skipped' => false, 'w' => $nw, 'h' => $nh]);
+        exit;
+    }
 }
 
 // ── DATA ───────────────────────────────────────────────────────────────────
@@ -398,6 +446,20 @@ textarea.comment-field::placeholder { color: rgba(255,255,255,.15); }
 }
 .save-status.show { opacity: 1; }
 
+/* Thumbnail log */
+#thumb-log { margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: .2rem; }
+.thumb-row {
+  display: grid; grid-template-columns: 4rem 1fr auto;
+  gap: .8rem; align-items: center;
+  font-size: .48rem; letter-spacing: .08em; padding: .28rem .6rem;
+}
+.thumb-row.pending { color: var(--faint); background: rgba(255,255,255,.02); }
+.thumb-row.ok      { color: var(--green); background: rgba(74,232,122,.05); }
+.thumb-row.err     { color: var(--red);   background: rgba(232,90,74,.05);  }
+.tr-size  { color: var(--accent); font-weight: 400; }
+.tr-file  { color: inherit; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-status { white-space: nowrap; }
+
 /* Spinner */
 .spin {
   width: 8px; height: 8px; border: 1px solid currentColor;
@@ -459,6 +521,13 @@ textarea.comment-field::placeholder { color: rgba(255,255,255,.15); }
     </div>
     <input type="file" id="file-input" multiple accept="image/jpeg,image/png,image/webp">
     <div id="upload-log"></div>
+
+    <!-- MINIATURES -->
+    <div class="section-head">
+      <h2>Miniatures</h2>
+      <button class="btn-sm" id="btn-thumbs" onclick="generateAllThumbs(this)">Générer 300px + 1200px</button>
+    </div>
+    <div id="thumb-log"></div>
 
     <!-- PHOTO LIST -->
     <div class="section-head">
@@ -610,6 +679,46 @@ async function deletePhoto(btn) {
   if (!confirm(`Supprimer "${file}" définitivement ?`)) return;
   await post({ action: 'delete', file });
   getCard(btn).remove();
+}
+
+// ── THUMBNAILS ────────────────────────────────────────────────────────────
+async function generateAllThumbs(btn) {
+  const log   = document.getElementById('thumb-log');
+  const sizes = [300, 1200];
+  const files = [...document.querySelectorAll('.photo-card')].map(c => c.dataset.file);
+
+  btn.disabled    = true;
+  btn.textContent = 'En cours…';
+  log.innerHTML   = '';
+
+  for (const file of files) {
+    for (const size of sizes) {
+      const row = document.createElement('div');
+      row.className = 'thumb-row pending';
+      row.innerHTML = `<span class="tr-size">${size}px</span><span class="tr-file">${file}</span><span class="tr-status">…</span>`;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+
+      try {
+        const data = await post({ action: 'generate_thumb', file, size });
+        if (data.ok) {
+          row.className = 'thumb-row ok';
+          row.querySelector('.tr-status').textContent = data.skipped
+            ? `✓ copié (${data.w}×${data.h} — déjà petit)`
+            : `✓ ${data.w}×${data.h}`;
+        } else {
+          row.className = 'thumb-row err';
+          row.querySelector('.tr-status').textContent = '✕ ' + (data.error || 'erreur');
+        }
+      } catch(e) {
+        row.className = 'thumb-row err';
+        row.querySelector('.tr-status').textContent = '✕ erreur réseau';
+      }
+    }
+  }
+
+  btn.disabled    = false;
+  btn.textContent = 'Régénérer 300px + 1200px';
 }
 
 // ── AUTO-SAVE on blur (uniquement si non vide) ───────────────────────────

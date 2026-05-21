@@ -107,8 +107,24 @@ foreach ($images as &$img) {
         $txt = $img_dir . $key . '.txt';
         $img['caption'] = file_exists($txt) ? trim(file_get_contents($txt)) : '';
     }
+    $t300  = $img_dir . 'thumbs/300/'  . $key . '.jpg';
+    $t1200 = $img_dir . 'thumbs/1200/' . $key . '.jpg';
+    $img['thumb300']  = file_exists($t300)  ? $t300  : null;
+    $img['thumb1200'] = file_exists($t1200) ? $t1200 : null;
+    $srcset = [];
+    if ($img['thumb300'])  $srcset[] = $img['thumb300']  . ' 300w';
+    if ($img['thumb1200']) $srcset[] = $img['thumb1200'] . ' 1200w';
+    $img['srcset'] = $srcset ? implode(', ', $srcset) : '';
 }
 unset($img);
+
+// Group by day for mobile feed
+$days = [];
+foreach ($images as $img) {
+    $d = date('Y-m-d', $img['mtime']);
+    $days[$d][] = $img;
+}
+krsort($days);
 
 $count  = count($images);
 $latest = $count > 0 ? $images[0] : null;
@@ -422,14 +438,43 @@ footer {
 
 .empty p { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .1em; }
 
-/* ── Responsive ────────────────────────────────────────────────────────── */
+/* ── Responsive desktop ─────────────────────────────────────────────────── */
 @media (max-width: 600px) {
-  header { padding: 1rem 1.2rem; }
-  .caption-bar { padding: 1rem 1.2rem 3rem; }
-  .caption-text { max-width: 85vw; font-size: .95rem; }
   .contact-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-  nav { gap: 1rem; }
   .counter { display: none; }
+}
+
+/* ── Mobile feed ────────────────────────────────────────────────────────── */
+#mobile-feed { display: none; }
+
+@media (max-width: 768px) {
+  html, body { overflow: auto; height: auto; }
+  #app, #contact { display: none !important; }
+  #mobile-feed { display: block; background: var(--white); min-height: 100vh; }
+
+  .m-header {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--white); border-bottom: 1px solid var(--border);
+    padding: .85rem 1.2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .m-title { font-family: var(--font-mono); font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
+  .m-title span { opacity: .45; }
+
+  .m-day { margin-bottom: 2rem; }
+
+  .m-carousel { position: relative; overflow: hidden; aspect-ratio: 1 / 1; background: var(--off); }
+  .m-slides-wrap { display: flex; width: 100%; height: 100%; transition: transform .28s var(--ease); will-change: transform; }
+  .m-slide { min-width: 100%; height: 100%; flex-shrink: 0; }
+  .m-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .m-dots { display: flex; justify-content: center; gap: .38rem; padding: .55rem 0 .2rem; }
+  .m-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(0,0,0,.15); transition: background .2s; flex-shrink: 0; }
+  .m-dot.active { background: var(--ink); }
+
+  .m-day-footer { padding: .45rem 1rem .5rem; }
+  .m-date { font-family: var(--font-mono); font-size: .44rem; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: .35rem; }
+  .m-caption { font-family: var(--font-mono); font-size: .65rem; line-height: 1.65; color: var(--ink); }
 }
 </style>
 </head>
@@ -474,6 +519,11 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
            id="photo-<?php echo $i; ?>"
            data-index="<?php echo $i; ?>">
         <img src="<?php echo htmlspecialchars($img['path']); ?>"
+             <?php if ($img['srcset']): ?>
+             srcset="<?php echo htmlspecialchars($img['srcset']); ?>"
+             sizes="100vw"
+             data-full="<?php echo htmlspecialchars($img['path']); ?>"
+             <?php endif; ?>
              alt="<?php echo htmlspecialchars($img['base']); ?>"
              loading="<?php echo $i === 0 ? 'eager' : 'lazy'; ?>">
       </div>
@@ -528,7 +578,11 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
   <div class="contact-grid">
     <?php foreach ($images as $i => $img): ?>
     <div class="thumb" onclick="goToPhoto(<?php echo $i; ?>)" title="<?php echo htmlspecialchars($img['base']); ?>">
-      <img src="<?php echo htmlspecialchars($img['path']); ?>"
+      <img src="<?php echo htmlspecialchars($img['thumb300'] ?: $img['path']); ?>"
+           <?php if ($img['srcset']): ?>
+           srcset="<?php echo htmlspecialchars($img['srcset']); ?>"
+           sizes="(max-width:600px) 120px, 180px"
+           <?php endif; ?>
            alt="<?php echo htmlspecialchars($img['base']); ?>"
            loading="lazy">
       <div class="thumb-meta">
@@ -537,6 +591,48 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
     </div>
     <?php endforeach; ?>
   </div>
+</div>
+
+<!-- ── Mobile feed ──────────────────────────────────────────────────── -->
+<div id="mobile-feed">
+  <header class="m-header">
+    <div class="m-title">Journal photo &nbsp;·&nbsp; <span>Tawan Arun</span></div>
+  </header>
+  <?php
+  $wday_fr  = ['dim.','lun.','mar.','mer.','jeu.','ven.','sam.'];
+  $month_fr = ['','jan','fév','mar','avr','mai','juin','juil','août','sep','oct','nov','déc'];
+  foreach ($days as $date => $day_imgs):
+    $ts    = strtotime($date);
+    $label = $wday_fr[date('w',$ts)] . ' ' . date('j',$ts) . ' ' . $month_fr[(int)date('n',$ts)] . ' ' . date('Y',$ts);
+  ?>
+  <div class="m-day">
+    <div class="m-carousel">
+      <div class="m-slides-wrap">
+      <?php foreach ($day_imgs as $j => $img):
+        $msrc    = $img['thumb300'] ?: $img['path'];
+        $msrcset = $img['srcset'];
+      ?>
+        <div class="m-slide" data-caption="<?php echo htmlspecialchars($img['caption']); ?>">
+          <img src="<?php echo htmlspecialchars($msrc); ?>"
+               <?php if ($msrcset): ?>srcset="<?php echo htmlspecialchars($msrcset); ?>" sizes="100vw"<?php endif; ?>
+               alt="" loading="<?php echo $j === 0 ? 'eager' : 'lazy'; ?>">
+        </div>
+      <?php endforeach; ?>
+      </div>
+    </div>
+    <?php if (count($day_imgs) > 1): ?>
+    <div class="m-dots">
+      <?php for ($j = 0; $j < count($day_imgs); $j++): ?>
+      <span class="m-dot<?php echo $j === 0 ? ' active' : ''; ?>"></span>
+      <?php endfor; ?>
+    </div>
+    <?php endif; ?>
+    <div class="m-day-footer">
+      <div class="m-date"><?php echo $label; ?></div>
+      <div class="m-caption"><?php echo htmlspecialchars($day_imgs[0]['caption']); ?></div>
+    </div>
+  </div>
+  <?php endforeach; ?>
 </div>
 
 <!-- Lightbox removed — contact sheet opens viewer at selected index -->
@@ -653,6 +749,18 @@ function resetZoom(animate) {
 }
 
 function zoomAt(img, cx, cy) {
+  const full = img.dataset.full;
+  if (full && img.currentSrc && img.currentSrc.includes('/thumbs/')) {
+    img.removeAttribute('srcset');
+    img.removeAttribute('sizes');
+    img.addEventListener('load', () => _applyZoom(img, cx, cy), { once: true });
+    img.src = full;
+    return;
+  }
+  _applyZoom(img, cx, cy);
+}
+
+function _applyZoom(img, cx, cy) {
   const ir  = img.getBoundingClientRect();
   const vr  = document.getElementById('viewer').getBoundingClientRect();
   const vcx = vr.left + vr.width  / 2;
@@ -778,6 +886,37 @@ if (total > 0) {
   if (PHOTOS[0].caption) cap.classList.add('visible');
   updateUI();
 }
+
+// ── Mobile feed carousels ─────────────────────────────────────────────────
+document.querySelectorAll('.m-day').forEach(day => {
+  const wrap    = day.querySelector('.m-slides-wrap');
+  const slides  = day.querySelectorAll('.m-slide');
+  const dots    = day.querySelectorAll('.m-dot');
+  const caption = day.querySelector('.m-caption');
+  if (slides.length <= 1) return;
+
+  let cur = 0;
+
+  function goTo(idx) {
+    cur = Math.max(0, Math.min(slides.length - 1, idx));
+    wrap.style.transform = `translateX(${-cur * 100}%)`;
+    dots.forEach((d, i) => d.classList.toggle('active', i === cur));
+    if (caption) caption.textContent = slides[cur].dataset.caption || '';
+  }
+
+  let startX = null, startT = null;
+  const car = day.querySelector('.m-carousel');
+  car.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startT = Date.now();
+  }, { passive: true });
+  car.addEventListener('touchend', e => {
+    if (startX === null) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    if (Math.abs(dx) > 40 && Date.now() - startT < 350) goTo(cur + (dx < 0 ? 1 : -1));
+    startX = null;
+  });
+});
 </script>
 </body>
 </html>
