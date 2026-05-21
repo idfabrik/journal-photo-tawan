@@ -126,6 +126,10 @@ foreach ($images as $img) {
 }
 krsort($days);
 
+// Map filename → global index (for lightbox)
+$img_index = [];
+foreach ($images as $i => $img) { $img_index[$img['file']] = $i; }
+
 $count  = count($images);
 $latest = $count > 0 ? $images[0] : null;
 ?>
@@ -448,9 +452,9 @@ footer {
 #mobile-feed { display: none; }
 
 @media (max-width: 768px) {
-  html, body { overflow: auto; height: auto; }
+  html, body { overflow-x: hidden; overflow-y: auto; height: auto; }
   #app, #contact { display: none !important; }
-  #mobile-feed { display: block; background: var(--white); min-height: 100vh; }
+  #mobile-feed { display: block; background: var(--white); min-height: 100vh; max-width: 100vw; overflow-x: hidden; }
 
   .m-header {
     position: sticky; top: 0; z-index: 100;
@@ -463,10 +467,14 @@ footer {
 
   .m-day { margin-bottom: 2rem; }
 
-  .m-carousel { position: relative; overflow: hidden; aspect-ratio: 1 / 1; background: var(--off); }
+  .m-carousel {
+    position: relative; overflow: hidden;
+    aspect-ratio: 3 / 2; background: var(--off);
+    max-width: 100vw; touch-action: pan-y;
+  }
   .m-slides-wrap { display: flex; width: 100%; height: 100%; transition: transform .28s var(--ease); will-change: transform; }
-  .m-slide { min-width: 100%; height: 100%; flex-shrink: 0; }
-  .m-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .m-slide { min-width: 100%; height: 100%; flex-shrink: 0; cursor: zoom-in; }
+  .m-slide img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 
   .m-dots { display: flex; justify-content: center; gap: .38rem; padding: .55rem 0 .2rem; }
   .m-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(0,0,0,.15); transition: background .2s; flex-shrink: 0; }
@@ -475,6 +483,29 @@ footer {
   .m-day-footer { padding: .45rem 1rem .5rem; }
   .m-date { font-family: var(--font-mono); font-size: .44rem; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: .35rem; }
   .m-caption { font-family: var(--font-mono); font-size: .65rem; line-height: 1.65; color: var(--ink); }
+
+  /* Lightbox */
+  #m-lightbox {
+    display: none; position: fixed; inset: 0; z-index: 500;
+    background: #000; flex-direction: column;
+    align-items: stretch; justify-content: center;
+    touch-action: none;
+  }
+  #m-lightbox.open { display: flex; }
+  .lb-close {
+    position: absolute; top: .9rem; right: 1rem; z-index: 10;
+    background: none; border: none; cursor: pointer;
+    font-family: var(--font-mono); font-size: 1.4rem;
+    color: rgba(255,255,255,.7); line-height: 1; padding: .2rem .4rem;
+  }
+  .lb-img-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .lb-img-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; user-select: none; }
+  .lb-footer {
+    padding: .6rem 1.2rem .8rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .lb-caption { font-family: var(--font-mono); font-size: .58rem; color: rgba(255,255,255,.6); line-height: 1.5; flex: 1; padding-right: 1rem; }
+  .lb-counter { font-family: var(--font-mono); font-size: .44rem; letter-spacing: .1em; color: rgba(255,255,255,.35); white-space: nowrap; }
 }
 </style>
 </head>
@@ -484,11 +515,12 @@ footer {
 <script>
 const PHOTOS = <?php echo json_encode(array_map(function($img) {
     return [
-        'path'    => $img['path'],
-        'file'    => $img['file'],
-        'caption' => $img['caption'],
-        'date'    => date('d.m.Y', $img['mtime']),
-        'time'    => date('H:i', $img['mtime']),
+        'path'     => $img['path'],
+        'file'     => $img['file'],
+        'caption'  => $img['caption'],
+        'date'     => date('d.m.Y', $img['mtime']),
+        'time'     => date('H:i', $img['mtime']),
+        'thumb1200' => $img['thumb1200'] ?? null,
     ];
 }, $images)); ?>;
 </script>
@@ -518,12 +550,12 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
       <div class="photo-wrap <?php echo $i === 0 ? 'visible' : ''; ?>"
            id="photo-<?php echo $i; ?>"
            data-index="<?php echo $i; ?>">
-        <img src="<?php echo htmlspecialchars($img['path']); ?>"
+        <img src="<?php echo htmlspecialchars($img['thumb1200'] ?: $img['path']); ?>"
              <?php if ($img['srcset']): ?>
              srcset="<?php echo htmlspecialchars($img['srcset']); ?>"
              sizes="100vw"
-             data-full="<?php echo htmlspecialchars($img['path']); ?>"
              <?php endif; ?>
+             data-full="<?php echo htmlspecialchars($img['path']); ?>"
              alt="<?php echo htmlspecialchars($img['base']); ?>"
              loading="<?php echo $i === 0 ? 'eager' : 'lazy'; ?>">
       </div>
@@ -611,8 +643,12 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
       <?php foreach ($day_imgs as $j => $img):
         $msrc    = $img['thumb300'] ?: $img['path'];
         $msrcset = $img['srcset'];
+        $gidx    = $img_index[$img['file']];
       ?>
-        <div class="m-slide" data-caption="<?php echo htmlspecialchars($img['caption']); ?>">
+        <div class="m-slide"
+             data-caption="<?php echo htmlspecialchars($img['caption']); ?>"
+             data-idx="<?php echo $gidx; ?>"
+             onclick="openLightbox(<?php echo $gidx; ?>)">
           <img src="<?php echo htmlspecialchars($msrc); ?>"
                <?php if ($msrcset): ?>srcset="<?php echo htmlspecialchars($msrcset); ?>" sizes="100vw"<?php endif; ?>
                alt="" loading="<?php echo $j === 0 ? 'eager' : 'lazy'; ?>">
@@ -633,6 +669,18 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
     </div>
   </div>
   <?php endforeach; ?>
+</div>
+
+<!-- ── Mobile lightbox ──────────────────────────────────────────────────── -->
+<div id="m-lightbox">
+  <button class="lb-close" onclick="closeLightbox()">×</button>
+  <div class="lb-img-wrap">
+    <img id="lb-img" src="" alt="">
+  </div>
+  <div class="lb-footer">
+    <div class="lb-caption" id="lb-caption"></div>
+    <div class="lb-counter" id="lb-counter"></div>
+  </div>
 </div>
 
 <!-- Lightbox removed — contact sheet opens viewer at selected index -->
@@ -886,6 +934,43 @@ if (total > 0) {
   if (PHOTOS[0].caption) cap.classList.add('visible');
   updateUI();
 }
+
+// ── Mobile lightbox ───────────────────────────────────────────────────────
+let lbCur = 0;
+const lbEl  = document.getElementById('m-lightbox');
+const lbImg = document.getElementById('lb-img');
+
+function lbShow(idx) {
+  lbCur = Math.max(0, Math.min(PHOTOS.length - 1, idx));
+  const p = PHOTOS[lbCur];
+  lbImg.src = p.thumb1200 || p.path;
+  document.getElementById('lb-caption').textContent = p.caption || '';
+  document.getElementById('lb-counter').textContent = (lbCur + 1) + ' / ' + PHOTOS.length;
+}
+
+function openLightbox(idx) {
+  lbShow(idx);
+  lbEl.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  lbEl.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Swipe dans le lightbox
+let lbTx = null, lbTt = null;
+lbEl.addEventListener('touchstart', e => {
+  lbTx = e.touches[0].clientX; lbTt = Date.now();
+}, { passive: true });
+lbEl.addEventListener('touchend', e => {
+  if (lbTx === null) return;
+  const dx = e.changedTouches[0].clientX - lbTx;
+  if (Math.abs(dx) > 40 && Date.now() - lbTt < 350) lbShow(lbCur + (dx < 0 ? 1 : -1));
+  else if (Math.abs(dx) < 10) closeLightbox();
+  lbTx = null;
+});
 
 // ── Mobile feed carousels ─────────────────────────────────────────────────
 document.querySelectorAll('.m-day').forEach(day => {
