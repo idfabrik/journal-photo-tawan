@@ -118,6 +118,26 @@ foreach ($images as &$img) {
 }
 unset($img);
 
+// Filter hidden images
+$hidden_path = __DIR__ . '/hidden.json';
+$hidden_list = file_exists($hidden_path) ? (json_decode(file_get_contents($hidden_path), true) ?? []) : [];
+$show_all    = isset($_GET['all']);
+if ($hidden_list && !$show_all) {
+    $images = array_values(array_filter($images, fn($img) => !in_array($img['file'], $hidden_list)));
+}
+
+// Load tags
+$tags_data   = [];
+$tags_path   = __DIR__ . '/tags.json';
+if (file_exists($tags_path)) $tags_data = json_decode(file_get_contents($tags_path), true) ?? [];
+foreach ($images as &$img) { $img['tags'] = $tags_data[$img['file']] ?? []; }
+unset($img);
+
+$all_projects = [];
+foreach ($tags_data as $ft) foreach ($ft as $t) $all_projects[$t] = true;
+$all_projects = array_keys($all_projects);
+sort($all_projects);
+
 // Group by day for mobile feed
 $days = [];
 foreach ($images as $img) {
@@ -138,10 +158,11 @@ $latest = $count > 0 ? $images[0] : null;
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Journal photographique · Tawan Arun</title>
+<title>Journal photo · Tawan Arun</title>
+<script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
 /* ── Reset & base ──────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -153,17 +174,25 @@ $latest = $count > 0 ? $images[0] : null;
   --muted:   #8a8a85;
   --accent:  #1a1a18;
   --border:  rgba(0,0,0,.08);
-  --font-serif: 'Cormorant Garamond', Georgia, serif;
   --font-mono:  'DM Mono', monospace;
   --ease:    cubic-bezier(.25,.46,.45,.94);
+}
+
+html.dark {
+  --white:  #111110;
+  --off:    #1c1c1a;
+  --ink:    #eeeee8;
+  --muted:  #777772;
+  --border: rgba(255,255,255,.08);
 }
 
 html, body {
   height: 100%;
   background: var(--white);
   color: var(--ink);
-  font-family: var(--font-serif);
+  font-family: var(--font-mono);
   overflow: hidden;
+  transition: background .3s, color .3s;
 }
 
 /* ── Layout ────────────────────────────────────────────────────────────── */
@@ -197,7 +226,9 @@ header {
   opacity: .5;
 }
 
-nav { display: flex; gap: .5rem; align-items: center; pointer-events: auto; }
+nav { display: flex; flex: 1; gap: .4rem; align-items: center; pointer-events: auto; }
+
+#btn-cover { margin-left: auto; }
 
 nav button {
   background: var(--white);
@@ -207,12 +238,53 @@ nav button {
   letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: .3rem .65rem;
-  transition: color .2s;
+  padding: .28rem .65rem;
+  transition: color .18s, background .18s;
 }
 
 nav button:hover { color: var(--ink); }
-nav button.active { color: var(--ink); }
+nav button.active { background: var(--ink); color: var(--white); }
+
+.nav-admin {
+  font-family: var(--font-mono);
+  font-size: .55rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  padding: .28rem .65rem;
+  background: var(--white);
+  pointer-events: auto;
+  transition: color .18s;
+}
+.nav-admin:hover { color: var(--ink); }
+
+#btn-theme {
+  width: 1.75rem; height: 1.75rem; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .6rem; letter-spacing: 0;
+  border-radius: 50%;
+  outline: 1px solid var(--border);
+}
+
+/* ── PROJECT BAR ───────────────────────────────────────────────────────── */
+#project-bar {
+  position: fixed; top: 3rem; left: 0; right: 0; z-index: 90;
+  display: flex; gap: .3rem; padding: .42rem 1.4rem;
+  pointer-events: none; overflow-x: auto; scrollbar-width: none;
+}
+#project-bar::-webkit-scrollbar { display: none; }
+
+.proj-btn {
+  pointer-events: auto; flex-shrink: 0;
+  background: var(--white); border: none; cursor: pointer;
+  font-family: var(--font-mono); font-size: .48rem;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); padding: .22rem .58rem;
+  transition: color .18s, background .18s;
+}
+.proj-btn:hover { color: var(--ink); }
+.proj-btn.active { background: var(--ink); color: var(--white); }
 
 /* ── VIEWER ────────────────────────────────────────────────────────────── */
 #viewer {
@@ -345,7 +417,7 @@ nav button.active { color: var(--ink); }
   position: fixed; inset: 0; z-index: 50;
   background: var(--white);
   overflow-y: auto;
-  padding: 6rem 2.5rem 4rem;
+  padding: 6rem 1.2rem 4rem;
   animation: fadeIn .3s var(--ease);
 }
 
@@ -355,24 +427,25 @@ nav button.active { color: var(--ink); }
 
 .contact-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 2.5rem;
+  margin-bottom: 2rem;
 }
 
 .contact-header h2 {
   font-family: var(--font-mono);
   font-weight: 300;
-  font-size: .7rem;
+  font-size: .58rem;
   letter-spacing: .2em;
   text-transform: uppercase;
+  color: var(--muted);
   cursor: pointer;
   transition: color .2s;
 }
-.contact-header h2:hover { color: var(--muted); }
+.contact-header h2:hover { color: var(--ink); }
 
 .close-btn {
   background: none; border: none; cursor: pointer;
   font-family: var(--font-mono);
-  font-size: .65rem;
+  font-size: .55rem;
   letter-spacing: .14em;
   text-transform: uppercase;
   color: var(--muted);
@@ -380,44 +453,79 @@ nav button.active { color: var(--ink); }
 }
 .close-btn:hover { color: var(--ink); }
 
-/* Grid */
+/* Grid argentique */
 .contact-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 2px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 3px;
 }
 
 .thumb {
-  aspect-ratio: 1;
-  overflow: hidden;
+  display: flex;
+  flex-direction: row;
   cursor: pointer;
+  background: var(--white);
+  outline: 1px solid var(--border);
+  transition: outline-color .2s;
+}
+.thumb:hover { outline-color: var(--muted); }
+
+.thumb-img {
+  flex: 1;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
   background: var(--off);
-  position: relative;
 }
 
-.thumb img {
+.thumb-img img {
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform .4s var(--ease), opacity .3s;
-  filter: grayscale(15%);
+  transition: opacity .3s;
+}
+.thumb:hover .thumb-img img { opacity: .82; }
+
+.thumb-side {
+  width: 44px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  padding: .45rem .32rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
 }
 
-.thumb:hover img { transform: scale(1.04); filter: grayscale(0%); opacity: .9; }
-
-.thumb-meta {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  padding: .5rem .6rem;
-  background: linear-gradient(transparent, rgba(0,0,0,.45));
+.thumb-num {
   font-family: var(--font-mono);
-  font-size: .52rem;
-  color: rgba(255,255,255,.85);
+  font-size: .5rem;
+  color: var(--ink);
   letter-spacing: .06em;
-  opacity: 0;
-  transition: opacity .25s;
 }
 
-.thumb:hover .thumb-meta { opacity: 1; }
+.thumb-date {
+  font-family: var(--font-mono);
+  font-size: .33rem;
+  color: var(--muted);
+  letter-spacing: .05em;
+  line-height: 1.7;
+}
+
+.thumb-cap {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: .28rem;
+  color: var(--muted);
+  opacity: .6;
+  letter-spacing: .04em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  overflow: hidden;
+  max-height: 64px;
+  text-overflow: ellipsis;
+  flex: 1;
+  margin-top: .3rem;
+}
 
 
 
@@ -465,16 +573,32 @@ footer {
   .m-title { font-family: var(--font-mono); font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink); }
   .m-title span { opacity: .45; }
 
+  #project-bar { display: none; }
+
+  #m-project-bar {
+    display: flex; gap: .3rem; overflow-x: auto; scrollbar-width: none;
+    padding: .5rem 1.2rem; border-bottom: 1px solid var(--border);
+    background: var(--white);
+  }
+  #m-project-bar::-webkit-scrollbar { display: none; }
+  .m-proj-btn {
+    flex-shrink: 0; background: var(--white); border: none; cursor: pointer;
+    font-family: var(--font-mono); font-size: .48rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); padding: .2rem .55rem;
+    transition: color .18s, background .18s;
+  }
+  .m-proj-btn.active { background: var(--ink); color: var(--white); }
+
   .m-day { margin-bottom: 2rem; }
 
   .m-carousel {
     position: relative; overflow: hidden;
-    aspect-ratio: 3 / 2; background: var(--off);
+    aspect-ratio: 3 / 2; background: #111;
     max-width: 100vw; touch-action: pan-y;
   }
-  .m-slides-wrap { display: flex; width: 100%; height: 100%; transition: transform .28s var(--ease); will-change: transform; }
+  .m-slides-wrap { display: flex; width: 100%; height: 100%; will-change: transform; }
   .m-slide { min-width: 100%; height: 100%; flex-shrink: 0; cursor: zoom-in; }
-  .m-slide img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .m-slide img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 
   .m-dots { display: flex; justify-content: center; gap: .38rem; padding: .55rem 0 .2rem; }
   .m-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(0,0,0,.15); transition: background .2s; flex-shrink: 0; }
@@ -515,14 +639,16 @@ footer {
 <script>
 const PHOTOS = <?php echo json_encode(array_map(function($img) {
     return [
-        'path'     => $img['path'],
-        'file'     => $img['file'],
-        'caption'  => $img['caption'],
-        'date'     => date('d.m.Y', $img['mtime']),
-        'time'     => date('H:i', $img['mtime']),
+        'path'      => $img['path'],
+        'file'      => $img['file'],
+        'caption'   => $img['caption'],
+        'date'      => date('d.m.Y', $img['mtime']),
+        'time'      => date('H:i', $img['mtime']),
         'thumb1200' => $img['thumb1200'] ?? null,
+        'tags'      => $img['tags'] ?? [],
     ];
 }, $images)); ?>;
+const ALL_PROJECTS = <?php echo json_encode($all_projects); ?>;
 </script>
 
 <div id="app">
@@ -530,14 +656,29 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
   <!-- Header -->
   <header>
     <a class="site-title" href="#" onclick="showViewer(); return false;">
-      Journal photographique &nbsp;·&nbsp; <span>Tawan Arun</span>
+      journal photo &nbsp;·&nbsp; <span>Tawan Arun</span>
     </a>
     <nav>
       <button id="btn-viewer" class="active" onclick="showViewer()">Journal</button>
       <button id="btn-contact" onclick="showContact()">Planche contact</button>
       <button id="btn-cover" onclick="toggleCover()">Cover</button>
+      <button id="btn-theme" onclick="toggleTheme()" title="Mode sombre / clair">◑</button>
+      <a class="nav-admin" href="admin.php">Admin</a>
     </nav>
   </header>
+
+  <!-- Project filter bar (desktop) -->
+  <?php if (!empty($all_projects)): ?>
+  <div id="project-bar">
+    <button class="proj-btn active" data-project="" onclick="setProject('')">Tous</button>
+    <?php foreach ($all_projects as $p): ?>
+    <button class="proj-btn" data-project="<?php echo htmlspecialchars($p); ?>"
+            onclick="setProject('<?php echo htmlspecialchars($p, ENT_QUOTES); ?>')">
+      <?php echo htmlspecialchars($p); ?>
+    </button>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 
   <!-- Viewer -->
   <div id="viewer">
@@ -609,16 +750,20 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
   </div>
   <div class="contact-grid">
     <?php foreach ($images as $i => $img): ?>
-    <div class="thumb" onclick="goToPhoto(<?php echo $i; ?>)" title="<?php echo htmlspecialchars($img['base']); ?>">
-      <img src="<?php echo htmlspecialchars($img['thumb300'] ?: $img['path']); ?>"
-           <?php if ($img['srcset']): ?>
-           srcset="<?php echo htmlspecialchars($img['srcset']); ?>"
-           sizes="(max-width:600px) 120px, 180px"
-           <?php endif; ?>
-           alt="<?php echo htmlspecialchars($img['base']); ?>"
-           loading="lazy">
-      <div class="thumb-meta">
-        <?php echo date('d.m.Y', $img['mtime']); ?> &nbsp;·&nbsp; <?php echo htmlspecialchars($img['base']); ?>
+    <div class="thumb" onclick="goToPhoto(<?php echo $i; ?>)" data-index="<?php echo $i; ?>">
+      <div class="thumb-img">
+        <img src="<?php echo htmlspecialchars($img['thumb300'] ?: $img['path']); ?>"
+             alt="" loading="lazy">
+      </div>
+      <div class="thumb-side">
+        <div class="thumb-num"><?php echo str_pad($i + 1, 2, '0', STR_PAD_LEFT); ?></div>
+        <div class="thumb-date">
+          <?php echo date('d.m', $img['mtime']); ?><br>
+          <?php echo date('H:i', $img['mtime']); ?>
+        </div>
+        <?php if ($img['caption']): ?>
+        <div class="thumb-cap"><?php echo htmlspecialchars($img['caption']); ?></div>
+        <?php endif; ?>
       </div>
     </div>
     <?php endforeach; ?>
@@ -630,9 +775,21 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
   <header class="m-header">
     <div class="m-title">Journal photo &nbsp;·&nbsp; <span>Tawan Arun</span></div>
   </header>
+  <?php if (!empty($all_projects)): ?>
+  <div id="m-project-bar">
+    <button class="m-proj-btn active" data-project="" onclick="setProject('')">Tous</button>
+    <?php foreach ($all_projects as $p): ?>
+    <button class="m-proj-btn" data-project="<?php echo htmlspecialchars($p); ?>"
+            onclick="setProject('<?php echo htmlspecialchars($p, ENT_QUOTES); ?>')">
+      <?php echo htmlspecialchars($p); ?>
+    </button>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
   <?php
   $wday_fr  = ['dim.','lun.','mar.','mer.','jeu.','ven.','sam.'];
   $month_fr = ['','jan','fév','mar','avr','mai','juin','juil','août','sep','oct','nov','déc'];
+  $dayNum = 0;
   foreach ($days as $date => $day_imgs):
     $ts    = strtotime($date);
     $label = $wday_fr[date('w',$ts)] . ' ' . date('j',$ts) . ' ' . $month_fr[(int)date('n',$ts)] . ' ' . date('Y',$ts);
@@ -644,14 +801,21 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
         $msrc    = $img['thumb300'] ?: $img['path'];
         $msrcset = $img['srcset'];
         $gidx    = $img_index[$img['file']];
+        $eager   = ($dayNum === 0 && $j === 0);
       ?>
         <div class="m-slide"
              data-caption="<?php echo htmlspecialchars($img['caption']); ?>"
              data-idx="<?php echo $gidx; ?>"
              onclick="openLightbox(<?php echo $gidx; ?>)">
+          <?php if ($j === 0): ?>
           <img src="<?php echo htmlspecialchars($msrc); ?>"
                <?php if ($msrcset): ?>srcset="<?php echo htmlspecialchars($msrcset); ?>" sizes="100vw"<?php endif; ?>
-               alt="" loading="<?php echo $j === 0 ? 'eager' : 'lazy'; ?>">
+               alt="" loading="<?php echo $eager ? 'eager' : 'lazy'; ?>">
+          <?php else: ?>
+          <img data-lazy-src="<?php echo htmlspecialchars($msrc); ?>"
+               <?php if ($msrcset): ?>data-lazy-srcset="<?php echo htmlspecialchars($msrcset); ?>"<?php endif; ?>
+               src="" alt="">
+          <?php endif; ?>
         </div>
       <?php endforeach; ?>
       </div>
@@ -668,7 +832,7 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
       <div class="m-caption"><?php echo htmlspecialchars($day_imgs[0]['caption']); ?></div>
     </div>
   </div>
-  <?php endforeach; ?>
+  <?php $dayNum++; endforeach; ?>
 </div>
 
 <!-- ── Mobile lightbox ──────────────────────────────────────────────────── -->
@@ -689,13 +853,59 @@ const PHOTOS = <?php echo json_encode(array_map(function($img) {
 // ── State ─────────────────────────────────────────────────────────────────
 let current = 0;
 const total  = PHOTOS.length;
+let activeProject    = '';
+let filteredIndices  = PHOTOS.map((_, i) => i);
+
+// ── Project filter ────────────────────────────────────────────────────────
+function setProject(p) {
+  activeProject = p;
+
+  // Update all project buttons (desktop + mobile)
+  document.querySelectorAll('.proj-btn, .m-proj-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.project === p)
+  );
+
+  filteredIndices = p === ''
+    ? PHOTOS.map((_, i) => i)
+    : PHOTOS.map((_, i) => i).filter(i => PHOTOS[i].tags && PHOTOS[i].tags.includes(p));
+
+  if (!filteredIndices.length) return;
+
+  // Jump to first photo in filter
+  const prev = current;
+  current = filteredIndices[0];
+  if (prev !== current) {
+    document.getElementById('photo-' + prev)?.classList.remove('visible');
+    document.getElementById('photo-' + current)?.classList.add('visible');
+    resetZoom(false);
+  }
+  updateUI();
+
+  // Filter contact sheet
+  document.querySelectorAll('.thumb').forEach(thumb => {
+    if (p === '') { thumb.style.display = ''; return; }
+    const idx = parseInt(thumb.dataset.index);
+    thumb.style.display = (PHOTOS[idx]?.tags?.includes(p)) ? '' : 'none';
+  });
+
+  // Filter mobile days
+  document.querySelectorAll('.m-day').forEach(day => {
+    if (p === '') { day.style.display = ''; return; }
+    const has = [...day.querySelectorAll('.m-slide')].some(s =>
+      PHOTOS[parseInt(s.dataset.idx)]?.tags?.includes(p)
+    );
+    day.style.display = has ? '' : 'none';
+  });
+}
 
 // ── Navigate viewer ───────────────────────────────────────────────────────
 function navigate(dir) {
-  if (total === 0) return;
+  if (!filteredIndices.length) return;
+  const pos    = filteredIndices.indexOf(current);
+  const newPos = pos + dir;
+  if (newPos < 0 || newPos >= filteredIndices.length) return;
   const prev = current;
-  current = Math.max(0, Math.min(total - 1, current + dir));
-  if (prev === current) return;
+  current = filteredIndices[newPos];
 
   resetZoom(false);
   document.getElementById('photo-' + prev).classList.remove('visible');
@@ -718,15 +928,16 @@ function updateUI() {
   cap.textContent = p.caption || '';
   cap.classList.toggle('visible', !!p.caption);
 
-  // Counter
+  // Counter (position in filtered set)
+  const pos = filteredIndices.indexOf(current);
   document.getElementById('counter').textContent =
-    (current + 1) + ' / ' + total;
+    (pos + 1) + ' / ' + filteredIndices.length;
 
   // Arrows
   const prev = document.getElementById('prev-btn');
   const next = document.getElementById('next-btn');
-  if (prev) prev.disabled = (current === 0);
-  if (next) next.disabled = (current === total - 1);
+  if (prev) prev.disabled = (pos === 0);
+  if (next) next.disabled = (pos === filteredIndices.length - 1);
 }
 
 // ── Keyboard nav ──────────────────────────────────────────────────────────
@@ -893,6 +1104,12 @@ viewerEl.addEventListener('touchend', e => {
   e.stopPropagation();
 }, { capture: true });
 
+// ── Theme ─────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+}
+
 // ── Views ─────────────────────────────────────────────────────────────────
 function toggleCover() {
   const viewer = document.getElementById('viewer');
@@ -905,6 +1122,7 @@ function showViewer() {
   document.getElementById('contact').classList.remove('open');
   document.getElementById('btn-viewer').classList.add('active');
   document.getElementById('btn-contact').classList.remove('active');
+  document.getElementById('btn-cover').style.display = '';
   document.body.style.overflow = 'hidden';
 }
 
@@ -912,6 +1130,7 @@ function showContact() {
   document.getElementById('contact').classList.add('open');
   document.getElementById('btn-contact').classList.add('active');
   document.getElementById('btn-viewer').classList.remove('active');
+  document.getElementById('btn-cover').style.display = 'none';
   document.body.style.overflow = '';
 }
 
@@ -973,34 +1192,79 @@ lbEl.addEventListener('touchend', e => {
 });
 
 // ── Mobile feed carousels ─────────────────────────────────────────────────
+function loadSlide(slide) {
+  if (!slide) return;
+  const img = slide.querySelector('img');
+  if (!img || !img.dataset.lazySrc) return;
+  img.removeAttribute('loading');
+  img.src = img.dataset.lazySrc;
+  if (img.dataset.lazySrcset) { img.srcset = img.dataset.lazySrcset; img.sizes = '100vw'; }
+  img.removeAttribute('data-lazy-src');
+  img.removeAttribute('data-lazy-srcset');
+}
+
 document.querySelectorAll('.m-day').forEach(day => {
   const wrap    = day.querySelector('.m-slides-wrap');
-  const slides  = day.querySelectorAll('.m-slide');
+  const slides  = Array.from(day.querySelectorAll('.m-slide'));
   const dots    = day.querySelectorAll('.m-dot');
   const caption = day.querySelector('.m-caption');
-  if (slides.length <= 1) return;
 
   let cur = 0;
 
-  function goTo(idx) {
+  function goTo(idx, animate) {
     cur = Math.max(0, Math.min(slides.length - 1, idx));
-    wrap.style.transform = `translateX(${-cur * 100}%)`;
+    wrap.style.transition = animate !== false ? 'transform .28s var(--ease)' : 'none';
+    wrap.style.transform  = `translateX(${-cur * 100}%)`;
     dots.forEach((d, i) => d.classList.toggle('active', i === cur));
     if (caption) caption.textContent = slides[cur].dataset.caption || '';
+    loadSlide(slides[cur]);
+    loadSlide(slides[cur + 1]);
+    loadSlide(slides[cur - 1]);
   }
 
-  let startX = null, startT = null;
+  if (slides.length <= 1) return;
+
   const car = day.querySelector('.m-carousel');
+  let startX = null, startY = null, isHoriz = null, carW = 0;
+
   car.addEventListener('touchstart', e => {
-    startX = e.touches[0].clientX;
-    startT = Date.now();
+    startX   = e.touches[0].clientX;
+    startY   = e.touches[0].clientY;
+    isHoriz  = null;
+    carW     = car.offsetWidth;
+    wrap.style.transition = 'none';
   }, { passive: true });
-  car.addEventListener('touchend', e => {
+
+  car.addEventListener('touchmove', e => {
     if (startX === null) return;
-    const dx = e.changedTouches[0].clientX - startX;
-    if (Math.abs(dx) > 40 && Date.now() - startT < 350) goTo(cur + (dx < 0 ? 1 : -1));
-    startX = null;
-  });
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (isHoriz === null) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      isHoriz = Math.abs(dx) >= Math.abs(dy);
+    }
+    if (!isHoriz) return;
+    e.preventDefault();
+    const resistance = (dx > 0 && cur === 0) || (dx < 0 && cur === slides.length - 1) ? 0.25 : 1;
+    wrap.style.transform = `translateX(${-cur * 100 + (dx / carW * 100 * resistance)}%)`;
+  }, { passive: false });
+
+  function commit(finalX) {
+    if (startX === null || !isHoriz) { snap(); return; }
+    const dx = finalX - startX;
+    if (Math.abs(dx) > carW * 0.25) goTo(cur + (dx < 0 ? 1 : -1));
+    else snap();
+    startX = null; isHoriz = null;
+  }
+
+  function snap() {
+    wrap.style.transition = 'transform .28s var(--ease)';
+    wrap.style.transform  = `translateX(${-cur * 100}%)`;
+    startX = null; isHoriz = null;
+  }
+
+  car.addEventListener('touchend',    e => commit(e.changedTouches[0].clientX), { passive: true });
+  car.addEventListener('touchcancel', snap, { passive: true });
 });
 </script>
 </body>
