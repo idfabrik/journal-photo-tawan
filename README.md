@@ -19,17 +19,21 @@ Application PHP minimaliste sans base de données ni framework. Deux fichiers pu
 ├── admin.php        — interface d'administration
 ├── config.php       — mot de passe (ignoré par git, chmod 600 serveur)
 ├── comments.json    — légendes des photos (ignoré par git)
+├── tags.json        — projets/tags par fichier (ignoré par git)
+├── hidden.json      — liste des photos masquées (ignoré par git)
+├── deploy.sh        — script de déploiement rsync
 └── img/             — photos originales (ignoré par git)
-    └── thumbs/
-        ├── 300/     — miniatures 300px (générées depuis l'admin)
-        └── 1200/    — miniatures 1200px (générées depuis l'admin)
+    ├── thumbs/
+    │   ├── 300/     — miniatures 300px (générées depuis l'admin)
+    │   └── 1200/    — miniatures 1200px (générées depuis l'admin)
+    └── *.txt        — légendes en fichier texte (miroir de comments.json)
 ```
 
 ---
 
 ## Installation serveur
 
-1. Déposer les fichiers sur le serveur (hors `config.php`, `comments.json`, `img/`)
+1. Déposer les fichiers sur le serveur (hors `config.php`, `comments.json`, `tags.json`, `hidden.json`, `img/`)
 2. Créer `config.php` :
    ```php
    <?php
@@ -39,12 +43,47 @@ Application PHP minimaliste sans base de données ni framework. Deux fichiers pu
 4. Créer le dossier `img/` avec les droits d'écriture pour PHP
 5. La clé API Claude est lue depuis `/usr/www/users/idfabr/app-facture/.secret_key`
 
+### Déploiement
+
+```bash
+./deploy.sh
+```
+
+Envoie `index.php` et `admin.php` vers le serveur via rsync (connexion SSH `idfabrik`, chemin `/usr/home/idfabr/public_html/dev.tawanarun.fr/blog/`). Premier appui = déploie, second appui = met à jour.
+
 ---
 
 ## Frontend — `index.php`
 
 ### Authentification
-Accès protégé par mot de passe (session PHP, même `config.php` que l'admin). Le formulaire de login est en DM Mono, fond blanc, minimaliste.
+Accès protégé par mot de passe (session PHP, même `config.php` que l'admin).
+
+### Navigation
+
+Le header fixe contient :
+- Titre **journal photo** (lien retour vers le viewer)
+- Boutons **Journal** / **Planche contact** (fond noir/texte blanc quand actif)
+- Bouton **Cover** (masqué en mode planche contact)
+- Bouton **◑** bascule mode sombre/clair
+- Lien **Admin** vers `admin.php`
+- Barre de projets (visible uniquement si des tags existent)
+
+### Mode sombre / clair
+
+Bouton `◑` dans le nav. Le choix est mémorisé en `localStorage` et appliqué sans flash au chargement via un script inline dans `<head>`.
+
+### Projets / filtrage par tag
+
+Si des tags sont définis dans l'admin, une barre de boutons apparaît sous le header (desktop) ou sous le titre (mobile). Sélectionner un projet filtre :
+- Le viewer (navigation ←→ limitée aux photos du projet, compteur mis à jour)
+- La planche contact (vignettes non membres masquées)
+- Le feed mobile (jours sans photo du projet masqués)
+
+"Tous" réaffiche l'ensemble.
+
+### Photos masquées
+
+Les photos marquées "Masquer" dans l'admin sont exclues du frontend. Pour les afficher quand même : `index.php?all`.
 
 ### Vue desktop (> 768px)
 
@@ -52,49 +91,48 @@ Accès protégé par mot de passe (session PHP, même `config.php` que l'admin).
 - Une photo à la fois, plein écran
 - Navigation : flèches clavier ←→, clic sur les flèches latérales, swipe tactile
 - Tri automatique par nom de fichier (ordre alphabétique inversé)
-- Chargement : `src` = miniature 1200px si disponible, sinon originale. `srcset` avec 300w et 1200w pour que le navigateur choisisse la taille optimale.
+- Chargement : `src` = miniature 1200px si disponible, sinon originale. `srcset` 300w/1200w pour sélection automatique par le navigateur.
 
 **Zoom**
-- Clic sur l'image → zoom 2× centré sur le point cliqué (correspond au pixel natif sur écran Retina)
-- Si le navigateur a chargé une miniature, le full est rechargé automatiquement avant d'appliquer le zoom
+- Clic sur l'image → zoom 2× centré sur le point cliqué (pixel natif sur écran Retina)
+- Si le navigateur a chargé une miniature, le fichier original est rechargé avant le zoom
 - Drag souris ou tactile pour se déplacer dans l'image zoomée
-- Clic à nouveau → dézoom animé (0,35s) qui revient au bon cadrage (contain ou cover)
+- Clic à nouveau → dézoom animé (0,35s) revenant au bon cadrage (contain ou cover)
 
 **Mode Cover**
-- Bouton "Cover" dans le nav : l'image passe en `object-fit: cover` plein écran
-- Compatible avec le zoom (le zoom part du cadrage cover)
+- Bouton "Cover" : l'image passe en `object-fit: cover` plein écran
+- Compatible avec le zoom
 
 **Planche contact**
-- Grille de toutes les photos (miniatures 300px si disponibles)
-- Clic sur une photo → retour au viewer à l'index correspondant
-- Le nav reste visible (z-index inférieur au header fixe)
-- Titre "← Planche contact" cliquable pour revenir, bouton "← Fermer" en haut à droite
+- Fond adapté au thème clair/sombre
+- Grille de vignettes au ratio 3:2 (miniatures 300px)
+- Chaque vignette : image + panneau latéral 44px avec numéro de frame, date courte, heure
+- Filtrable par projet (voir section Projets)
+- Clic sur une vignette → retour au viewer à l'index correspondant
 
 ### Vue mobile (≤ 768px)
 
 Le viewer desktop et la planche contact sont masqués. Un feed vertical remplace l'interface.
 
 **Feed par jour**
-- Les photos sont regroupées par date (mtime du fichier)
-- Chaque jour = un bloc avec header date + carousel d'images
-- Images au ratio 3:2 (proportion native Z8), `object-fit: cover`
+- Photos regroupées par date (mtime du fichier), jours les plus récents en premier
+- Chaque jour = header date + carousel d'images
 
 **Carousel**
-- Swipe gauche/droite pour passer d'une photo à l'autre dans la même journée
-- Points indicateurs en dessous (nombre de points = nombre de photos du jour)
-- La légende se met à jour à chaque slide
-- `touch-action: pan-y` : le scroll vertical de la page reste natif
+- Swipe gauche/droite avec suivi du doigt en temps réel (live feedback)
+- Direction détectée après 4px : horizontal → carousel, vertical → scroll page natif
+- Commit si déplacement > 25% de la largeur, sinon snap retour
+- Points indicateurs sous le carousel
+- Lazy loading : premier slide de chaque jour via `loading="lazy"` natif, slides 2+ chargés au swipe
 
 **Lightbox**
-- Clic sur une image → lightbox plein écran fond noir, image en `object-fit: contain`
-- Swipe gauche/droite pour naviguer dans toutes les photos (pas seulement le jour en cours)
-- Compteur position/total en bas à droite
-- Tap sans déplacement → ferme la lightbox
+- Clic sur une image → lightbox plein écran fond noir
+- Swipe pour naviguer dans toutes les photos
+- Compteur position/total, tap sans déplacement → ferme
 
 **Images sur mobile**
-- `src` = miniature 300px si disponible
-- `srcset` = "300w, 1200w" avec `sizes="100vw"` : le navigateur charge la taille adaptée à l'écran et au DPR
-- Aucune image originale n'est chargée sur mobile si les miniatures existent
+- `src` = miniature 300px si disponible, `srcset` 300w/1200w
+- Aucune image originale chargée si les miniatures existent
 
 ---
 
@@ -105,30 +143,63 @@ Session PHP, même mot de passe que le frontend.
 
 ### Upload
 - Glisser-déposer ou sélection multiple (JPG, PNG, WEBP)
+- Barre de progression par fichier (XHR avec `upload.onprogress`)
+- Génération automatique des miniatures 300px et 1200px après chaque upload
 - Si un fichier du même nom existe déjà → remplacement silencieux
-- La page se recharge automatiquement après upload réussi
 
 ### Génération de miniatures
 Bouton "Générer 300px + 1200px" : traite toutes les photos en séquence via PHP GD.
-- Taille : redimensionnement au grand côté, ratio conservé
-- Format de sortie : JPEG à 75%
+- Skip automatique des miniatures déjà existantes (log `— déjà existante`)
+- Bouton "Régénérer" pour forcer le recalcul de toutes les miniatures
+- Format de sortie : JPEG à 75%, ratio conservé
 - Destination : `img/thumbs/300/` et `img/thumbs/1200/`
-- Si l'image source est plus petite que la cible → copie directe
-- Un log ligne par ligne s'affiche en temps réel avec les dimensions produites
-- Bouton "Régénérer" après la première passe pour mettre à jour après nouveaux uploads
 
 ### Légendes
 - Champ texte par photo, sauvegarde manuelle ou automatique au blur
 - Stockées dans `comments.json` et en parallèle dans un fichier `.txt` à côté de l'image
-- **✦ Générer** : génère une légende par IA (Claude Sonnet via API Anthropic) à partir de l'image
-- **⌥ Corriger** : corrige orthographe et grammaire sans changer le style
+- **✦ Générer** : génère une légende factuelle et neutre via Claude Sonnet (description de ce qui est visible, sans style littéraire)
+- **⌥ Corriger** : corrige orthographe et grammaire sans reformuler ni compléter (fonctionne sur un seul mot)
+
+### Projets / tags
+- Zone de tags sous la légende de chaque photo
+- Saisir un nom + `Entrée` ou `,` → crée un chip, sauvegarde immédiate dans `tags.json`
+- Autocomplétion sur les tags existants (datalist)
+- `×` sur un chip → retire le tag
+- Une photo peut appartenir à plusieurs projets
+- Stockés dans `tags.json` (clé = nom de fichier, valeur = tableau de tags)
+
+### Masquage
+- Case à cocher "Masquer" par photo
+- La photo reste dans l'admin mais disparaît du frontend
+- Indication visuelle : image à 35% d'opacité + badge "masqué"
+- Stocké dans `hidden.json`
+- Pour voir les photos masquées dans le frontend : `?all`
+
+### Renommage
+- Bouton "⤢ Renommer" (apparaît au survol, haut gauche de la vignette)
+- Popup avec suggestion automatique au format `YYYY-MM-DD_nom-original.jpg`
+- La date est lue depuis les métadonnées EXIF (`DateTimeOriginal`) si disponibles, sinon depuis la date du fichier
+- L'origine de la date est indiquée dans le popup : **✦ Date issue des données EXIF** (vert) ou **○ Date issue de la date du fichier** (gris)
+- Un préfixe date/heure existant dans le nom (ex. `2026-26-17_16-14_TAW0847.jpg`) est automatiquement strippé pour ne garder que le nom caméra original
+- Le renommage met à jour : fichier image, miniatures 300/1200, fichier `.txt`, `comments.json`, `tags.json`
 
 ### Suppression
 - Bouton "✕ Supprimer" par photo (confirmation requise)
-- Supprime l'image, le `.txt` associé, et la légende dans `comments.json`
+- Supprime l'image, le `.txt` associé, la légende dans `comments.json` et les tags dans `tags.json`
 
 ### Clé API Claude
 Lue depuis `/usr/www/users/idfabr/app-facture/.secret_key` (fichier externe au projet). Un bandeau d'alerte s'affiche dans l'admin si la clé est manquante ou vide.
+
+---
+
+## Fichiers de données (tous ignorés par git)
+
+| Fichier | Format | Contenu |
+|---|---|---|
+| `config.php` | PHP | Mot de passe (`define('PASSWORD', '...')`) |
+| `comments.json` | JSON | `{"nom_sans_extension": "légende"}` |
+| `tags.json` | JSON | `{"fichier.jpg": ["projet1", "projet2"]}` |
+| `hidden.json` | JSON | `["fichier1.jpg", "fichier2.jpg"]` |
 
 ---
 
@@ -140,7 +211,7 @@ Lue depuis `/usr/www/users/idfabr/app-facture/.secret_key` (fichier externe au p
 | Miniatures 1200px | générées automatiquement | JPEG | 75 % |
 | Miniatures 300px | générées automatiquement | JPEG | 75 % |
 
-Le zoom 2× affiche l'image à `naturalWidth × 2` CSS pixels. Sur écran Retina (DPR = 2), une photo de 4000px s'affiche donc à 8000px CSS = 4000 pixels physiques — correspondance 1:1 avec les pixels du capteur.
+Le zoom 2× affiche l'image à `naturalWidth × 2` CSS pixels. Sur écran Retina (DPR = 2), une photo de 4000px s'affiche à 8000px CSS = 4000 pixels physiques — correspondance 1:1 avec les pixels du capteur.
 
 ---
 
@@ -157,9 +228,9 @@ Le zoom 2× affiche l'image à `naturalWidth × 2` CSS pixels. Sur écran Retina
 
 ### Administration
 - [ ] Réorganisation des photos par drag-and-drop (ordre d'affichage manuel)
-- [ ] Renommage de fichier directement dans l'interface
 - [ ] Compression / redimensionnement automatique à l'upload
 - [ ] Historique des légendes générées par IA (annuler/restaurer)
+- [ ] Tri/filtre dans l'admin par projet ou statut masqué
 
 ### Technique
 - [ ] Cache HTTP sur les images (headers `Cache-Control`, `ETag`)
